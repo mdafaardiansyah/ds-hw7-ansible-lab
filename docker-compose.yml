@@ -1,0 +1,28 @@
+name: Ansible Lab Docker Compose
+
+services:
+  managed-node-1:
+    build: ./docker
+    container_name: ansible-node-1
+    hostname: node1
+    ports:
+      - "2201:22"  # SSH port mapping
+      - "8081:80" # Open access to Nginx
+    networks:
+      - ansible-net
+    restart: unless-stopped
+    
+  managed-node-2:
+    build: ./docker
+    container_name: ansible-node-2
+    hostname: node2
+    ports:
+      - "2202:22"  # SSH port mapping
+      - "8082:80" # Open access to Nginx
+    networks:
+      - ansible-net
+    restart: unless-stopped
+
+networks:
+  ansible-net:
+    driver: bridge

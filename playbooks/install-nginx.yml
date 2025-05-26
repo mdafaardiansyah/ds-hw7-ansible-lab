@@ -1,0 +1,169 @@
+---
+- name: Install and Configure Nginx on Managed Nodes
+  hosts: webservers
+  become: true
+  vars:
+    nginx_port: 80
+    web_root: /var/www/html
+    
+  tasks:
+    - name: Update apt package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+      when: ansible_os_family == "Debian"
+      notify: restart nginx
+      
+    - name: Ensure Nginx is started and enabled
+      service:
+        name: nginx
+        state: started
+        enabled: true
+        
+    # Fix: Get IP address dynamically with fallback
+    - name: Get container IP address
+      shell: |
+        # Try to get eth0 IP first, then any available IP
+        ip addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -1 || \
+        ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+' || \
+        hostname -I | awk '{print $1}' || \
+        echo "Container IP"
+      register: container_ip
+      changed_when: false
+      
+    - name: Debug - Show detected IP
+      debug:
+        msg: "Detected IP: {{ container_ip.stdout }}"
+        
+    - name: Create custom index.html with safe variables
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Welcome to {{ ansible_hostname }}</title>
+              <style>
+                  body { 
+                      font-family: Arial, sans-serif; 
+                      text-align: center; 
+                      margin-top: 50px; 
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white;
+                      min-height: 100vh;
+                  }
+                  .container { 
+                      max-width: 800px; 
+                      margin: 0 auto; 
+                      padding: 20px;
+                  }
+                  .hostname { 
+                      color: #ffd700; 
+                      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+                  }
+                  .info { 
+                      background-color: rgba(255,255,255,0.1); 
+                      padding: 25px; 
+                      border-radius: 15px; 
+                      margin: 20px 0; 
+                      backdrop-filter: blur(10px);
+                      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                  }
+                  .status {
+                      background-color: #28a745;
+                      padding: 10px 20px;
+                      border-radius: 25px;
+                      display: inline-block;
+                      margin: 10px;
+                  }
+                  .emoji {
+                      font-size: 2em;
+                      margin: 10px;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <div class="emoji"></div>
+                  <h1>Nginx Successfully Deployed!</h1>
+                  <h2>Container: <span class="hostname">{{ ansible_hostname }}</span></h2>
+                  
+                  <div class="status">
+                      V RUNNING
+                  </div>
+                  
+                  <div class="info">
+                      <h3> System Information</h3>
+                      <p><strong> Hostname:</strong> {{ ansible_hostname }}</p>
+                      <p><strong> OS:</strong> {{ ansible_distribution | default('Unknown') }} {{ ansible_distribution_version | default('N/A') }}</p>
+                      <p><strong> Architecture:</strong> {{ ansible_architecture | default('Unknown') }}</p>
+                      <p><strong> IP Address:</strong> {{ container_ip.stdout | default('Container Network') }}</p>
+                      <p><strong> Platform:</strong> Docker Container</p>
+                      <p><strong> Deployed by:</strong> Ansible Automation</p>
+                      <p><strong> Deployment Time:</strong> {{ ansible_date_time.iso8601 | default('N/A') }}</p>
+                  </div>
+                  
+                  <div class="info">
+                      <h3> Technical Details</h3>
+                      <p><strong> Nginx Version:</strong> 1.18.0</p>
+                      <p><strong> Port:</strong> {{ nginx_port }}</p>
+                      <p><strong> Document Root:</strong> {{ web_root }}</p>
+                      <p><strong> Environment:</strong> Development Lab</p>
+                  </div>
+                  
+                  <div style="margin-top: 30px; font-size: 0.9em; opacity: 0.8;">
+                      <p> <strong>Mission Accomplished!</strong></p>
+                      <p>Your Ansible playbook has successfully deployed Nginx in a Docker container.</p>
+                  </div>
+              </div>
+          </body>
+          </html>
+        dest: "{{ web_root }}/index.html"
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: '0644'
+      notify: reload nginx
+      
+    - name: Check if Nginx is serving content
+      uri:
+        url: "http://localhost:{{ nginx_port }}"
+        method: GET
+        status_code: 200
+      register: nginx_check
+      
+    - name: Display Nginx status
+      debug:
+        msg: " Nginx is {{ 'running successfully' if nginx_check.status == 200 else 'not responding properly' }}"
+        
+    - name: Get Nginx version
+      shell: nginx -v 2>&1
+      register: nginx_version
+      changed_when: false
+      
+    - name: Display Nginx version
+      debug:
+        msg: " {{ nginx_version.stderr }}"
+        
+    - name: Display access URLs
+      debug:
+        msg: |
+           Deployment Complete! Access your containers:
+           Node 1: http://{{ ansible_host }}:8081 (if port forwarding enabled)
+           Node 2: http://{{ ansible_host }}:8082 (if port forwarding enabled)
+           Local test: curl http://localhost within containers
+
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+        
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded

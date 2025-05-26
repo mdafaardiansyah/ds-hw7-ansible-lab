@@ -1,0 +1,30 @@
+---
+- name: System Status Check
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check system uptime
+      shell: uptime
+      register: system_uptime
+      
+    - name: Check disk usage
+      shell: df -h /
+      register: disk_usage
+      
+    - name: Check memory usage
+      shell: free -m
+      register: memory_usage
+      
+    - name: Check running services
+      shell: systemctl list-units --type=service --state=running | grep nginx
+      register: nginx_service
+      ignore_errors: true
+      
+    - name: Display system status
+      debug:
+        msg: |
+          ===== {{ ansible_hostname }} Status =====
+          Uptime: {{ system_uptime.stdout }}
+          Disk Usage: {{ disk_usage.stdout_lines[1] }}
+          Memory: {{ memory_usage.stdout_lines[1] }}
+          Nginx Status: {{ 'Running' if nginx_service.rc == 0 else 'Not Running' }}
